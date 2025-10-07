@@ -2,7 +2,7 @@
 
 Aplikacja AI, która tworzy krótkie opowiadania z pomysłu użytkownika —  
 od zarysu fabuły po gotowy tekst i ilustracje generowane przez sztuczną inteligencję.  
-Zaprojektowana w Streamlit z wykorzystaniem modeli OpenAI (GPT-4o + DALL·E). 📚🎨  
+Zaprojektowana w Streamlit z wykorzystaniem modeli OpenAI (GPT-4o/GPT4omini + DALL·E). 📚🎨  
 
 ---
 
