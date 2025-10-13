@@ -157,36 +157,48 @@ def create_pdf(story_text, images_data, title="Fabryka Opowiadań"):
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
 
-        # --- Ilustracja po scenie ---
+
+
+
+
+
+
+                # --- Ilustracja po scenie (poprawione wstawianie obrazków) ---
         if scene_num > 0 and scene_num in images_data:
-            image_url = images_data[scene_num]
             try:
-                # Pobranie obrazka
-                response = requests.get(image_url, timeout=30)
+                img_url = images_data[scene_num]
+                # pobranie obrazka jako bajty
+                response = requests.get(img_url, timeout=15)
                 response.raise_for_status()
                 img_bytes = io.BytesIO(response.content)
                 img_reader = ImageReader(img_bytes)
 
-                # Automatyczne dopasowanie proporcji
+                # dopasowanie rozmiaru obrazka do szerokości PDF
                 iw, ih = img_reader.getSize()
                 max_w = text_width * 0.75
                 scale = min(1.0, max_w / float(iw))
                 img_w = iw * scale
                 img_h = ih * scale
 
-                # Nowa strona jeśli brak miejsca
+                # jeśli brak miejsca na stronie, utwórz nową
                 if y - img_h < margin:
                     pdf.showPage()
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
 
-                # Wyśrodkowanie obrazka
+                # wyśrodkowanie ilustracji
                 x_center = (width - img_w) / 2
-                y_start = y - img_h - 10
-                pdf.drawImage(img_reader, x_center, y_start, width=img_w, height=img_h)
+                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
                 y -= img_h + 30
+
             except Exception as e:
-                print(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+                st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+
+
+
+
+
+
 
     pdf.save()
     buffer.seek(0)
