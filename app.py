@@ -104,8 +104,12 @@ def clean_title_and_extract_number(text):
     return cleaned_text, scene_num
 
 
+    def create_pdf(story_text, images_data=None):
+    # Jeśli nie przekazano ilustracji, pobierz je z session_state
+        if not images_data and "scene_images" in st.session_state:
+            images_data = st.session_state.scene_images
 
-def create_pdf(story_text, images_data, title="Fabryka Opowiadań"):
+
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
