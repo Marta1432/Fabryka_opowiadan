@@ -8,9 +8,9 @@ Zaprojektowana w Streamlit z wykorzystaniem modeli OpenAI (GPT-4o/GPT4omini + DA
 
 ## 🚀 Funkcje
 
-- 🧠 Generowanie zarysu i planu opowiadania na podstawie pomysłu użytkownika  
+- 🧠 Generowanie planu i całego opowiadania na podstawie pomysłu użytkownika  
 - ✍️ Tworzenie pełnej historii w wybranym stylu narracji i gatunku  
-- 🎨 Generowanie ilustracji w różnych stylach (bajkowy, pastelowy, realistyczny, komiksowy, kolorowanka)  
+- 🎨 Generowanie ilustracji
 - 💾 Eksport gotowego opowiadania do pliku PDF
 
 
@@ -26,10 +26,4 @@ Zaprojektowana w Streamlit z wykorzystaniem modeli OpenAI (GPT-4o/GPT4omini + DA
 
 ---
 
-## ⚙️ Uruchomienie lokalne
 
-```bash
-git clone https://github.com/<twoj_login>/fabryka-opowiadan.git
-cd fabryka-opowiadan
-pip install -r requirements.txt
-streamlit run app.py
