@@ -655,6 +655,10 @@ if st.session_state.step == "final":
     st.subheader("Pobieranie pliku PDF")
     
     if st.session_state.story:
+
+        st.write("🧩 Debug: zawartość scene_images", st.session_state.scene_images)
+
+
         with st.spinner("Przygotowuję PDF (tekst + ilustracje)..."):
             pdf_buffer = create_pdf(
                 st.session_state.story, 
