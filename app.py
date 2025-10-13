@@ -1,17 +1,15 @@
 import os
+import io
+import re
+import json
+import requests
 import streamlit as st
 import openai
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-import io
-import requests
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
-from reportlab.platypus import Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
-import json
-import re 
 
 # --- Rejestracja czcionek dla ReportLab (dla polskich znaków w PDF) ---
 try:
@@ -105,137 +103,99 @@ def clean_title_and_extract_number(text):
     scene_num = int(match.group(0)) if match else None
     return cleaned_text, scene_num
 
-# ZMODYFIKOWANA FUNKCJA create_pdf
-def create_pdf(story_text, images_data):
-    """Generuje plik PDF z tekstem opowiadania i ilustracjami."""
+
+
+def create_pdf(story_text, images_data, title="Fabryka Opowiadań"):
+
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
+
+    # --- Czcionki z polskimi znakami (Liberation Serif) ---
+    pdfmetrics.registerFont(TTFont("LiberationSerif", "LiberationSerif-Regular.ttf"))
+    pdfmetrics.registerFont(TTFont("LiberationSerif-Bold", "LiberationSerif-Bold.ttf"))
+
     margin = 50
     text_width = width - 2 * margin
     y = height - margin
 
-    # Tytuł
-    display_title = "Wygenerowana Opowieść"
-    if story_text:
-        story_title_candidate = story_text.split('\n')[0].strip()
-        # Jeśli pierwsza linia nie jest nagłówkiem SCENA/ROZDZIAŁ, używamy jej jako tytułu
-        if not re.match(r"(SCENA|ROZDZIAŁ)\s+\d+", story_title_candidate.upper()):
-            display_title = story_title_candidate
+    # --- Nagłówek PDF ---
+    pdf.setFont("LiberationSerif-Bold", 18)
+    pdf.drawCentredString(width / 2, y, title)
+    y -= 40
 
-    pdf.setFont('Serif-Bold', 24)
-    pdf.drawString(margin, height - 40, display_title)
-    pdf.line(margin, height - 55, width - margin, height - 55)
-    y = height - 80
+    pdf.setFont("LiberationSerif", 12)
 
-    # Ustawienie stylów dla ReportLab
-    styles = getSampleStyleSheet()
-    style_normal = styles['Normal']
-    style_normal.fontName = 'Serif'
-    style_normal.fontSize = 10
-    style_normal.leading = 14
-    
-    # Styl dla treści sceny, ale nie dla samego nagłówka, który rysujemy ręcznie
-    style_content = styles['Normal']
-    style_content.fontName = 'Serif'
-    style_content.fontSize = 10
-    style_content.leading = 14
-    
-    # Ustawienia dla nagłówka sceny rysowanego ręcznie
-    scene_title_font = 'Serif-Bold'
-    scene_title_size = 12
+    # --- Przetwarzanie opowiadania ---
+    lines = story_text.split("\n")
+    scene_num = 0
 
-    # Dzielenie tekstu na akapity (po dwóch enterach)
-    story_parts = story_text.split('\n\n')
-
-    for part in story_parts:
-        part = part.strip()
-        if not part:
-            continue
-        
-        # Sprawdzenie, czy to nagłówek sceny (np. SCENA 3: lub ROZDZIAŁ 1:)
-        is_scene_title_match = re.match(r"(SCENA|ROZDZIAŁ)\s+\d+[:.]?\s*", part.upper())
-        
-        # --- Dodawanie Ilustracji (PRZED TEKSTEM SCENY) ---
-        if is_scene_title_match:
-            try:
-                # Wyszukiwanie numeru sceny z tekstu (np. "SCENA 3" lub "ROZDZIAŁ 1")
-                match = re.search(r"\d+", part)
-                scene_num = int(match.group(0)) if match else 0
-            except:
-                scene_num = 0
-
-            if scene_num > 0 and scene_num in images_data:
-                image_url = images_data[scene_num]
-                
-                # Pobieranie obrazka
-                response = requests.get(image_url, stream=True)
-                if response.status_code == 200:
-                    img_data = response.content
-                    
-                    # ReportLab ImageReader wczytuje dane obrazu
-                    img_reader = ImageReader(io.BytesIO(img_data))
-                    
-                    # Ustalanie rozmiaru: proporcje 1:1
-                    img_width = text_width * 0.7 
-                    img_height = img_width 
-
-                    # Sprawdzenie, czy obrazek zmieści się na stronie
-                    if y - img_height < margin:
-                        pdf.showPage()
-                        y = height - margin
-
-                    # Rysowanie obrazka na środku strony
-                    x_center = (width - img_width) / 2
-                    
-                    # Obrazek rysujemy na pozycji (x_center, y - img_height)
-                    y_start_image = y - img_height - 10 
-                    pdf.drawImage(img_reader, x_center, y_start_image, width=img_width, height=img_height)
-                    y -= img_height + 30 # Odstęp po obrazku
-                else:
-                    st.error(f"❌ Nie udało się pobrać obrazka dla sceny {scene_num}. Status: {response.status_code}")
-                
-        
-        # --- Rysowanie Tekstu (Nagłówek lub Akapit) ---
-        if is_scene_title_match:
-            # 1. Rysowanie Nagłówka Sceny (czysto, bez gwiazdek)
-            pdf.setFont(scene_title_font, scene_title_size)
-            
-            # Usuwamy gwiazdki z nagłówka, jeśli jakieś się pojawią
-            clean_title = part.replace('**', '').strip() 
-            
-            # Sprawdzenie nowej strony dla tytułu
-            if y < margin + scene_title_size + 10:
-                pdf.showPage()
-                y = height - margin
-            
-            y -= scene_title_size + 5 # Przesunięcie w dół
-            pdf.drawString(margin, y, clean_title)
-            y -= 10 # Odstęp po tytule
-            
+    for line in lines:
+        # Rozpoznaj sceny / rozdziały
+        if line.strip().lower().startswith("rozdział"):
+            scene_num += 1
+            pdf.setFont("LiberationSerif-Bold", 14)
+            pdf.drawString(margin, y, line.strip())
+            y -= 25
+            pdf.setFont("LiberationSerif", 12)
         else:
-            # 2. Rysowanie Zwykłego Akapitu
-            current_style = style_content
-            
-            # Obliczanie, ile miejsca zajmie akapit
-            p = Paragraph(part.replace('\n', '<br/>'), current_style)
-            w, h = p.wrapOn(pdf, text_width, height)
+            # Zwykły tekst
+            if not line.strip():
+                y -= 10
+                continue
 
-            # Sprawdzenie nowej strony
-            if y - h < margin:
-                pdf.showPage()
-                y = height - margin
+            # Dziel linie dłuższe niż szerokość strony
+            while line:
+                text_line = line[:90]
+                line = line[90:]
+                pdf.drawString(margin, y, text_line)
+                y -= 15
 
-            # Rysowanie akapitu
-            y -= h # Przesunięcie w dół przed rysowaniem
-            p.drawOn(pdf, margin, y)
-            y -= 10 # Odstęp po akapicie (standardowa przerwa)
+                # Nowa strona jeśli brak miejsca
+                if y < margin:
+                    pdf.showPage()
+                    pdf.setFont("LiberationSerif", 12)
+                    y = height - margin
 
+        # --- Ilustracja po scenie ---
+        if scene_num > 0 and scene_num in images_data:
+            image_url = images_data[scene_num]
+            try:
+                # Pobranie obrazka
+                response = requests.get(image_url, timeout=30)
+                response.raise_for_status()
+                img_bytes = io.BytesIO(response.content)
+                img_reader = ImageReader(img_bytes)
 
-    # Zapisanie PDF
+                # Automatyczne dopasowanie proporcji
+                iw, ih = img_reader.getSize()
+                max_w = text_width * 0.75
+                scale = min(1.0, max_w / float(iw))
+                img_w = iw * scale
+                img_h = ih * scale
+
+                # Nowa strona jeśli brak miejsca
+                if y - img_h < margin:
+                    pdf.showPage()
+                    pdf.setFont("LiberationSerif", 12)
+                    y = height - margin
+
+                # Wyśrodkowanie obrazka
+                x_center = (width - img_w) / 2
+                y_start = y - img_h - 10
+                pdf.drawImage(img_reader, x_center, y_start, width=img_w, height=img_h)
+                y -= img_h + 30
+            except Exception as e:
+                print(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+
     pdf.save()
     buffer.seek(0)
     return buffer
+
+
+
+
+
 
 
 def handle_image_generation(scenes):
@@ -344,7 +304,7 @@ st.sidebar.header("📝 Ustawienia Opowiadania")
 
 # --- KRYTYCZNE POLE: Pomysł na Opowiadanie (TextArea) ---
 st.session_state.prompt = st.sidebar.text_area(
-    "GŁÓWNY POMYSŁ (np. Zajączek, który szukał zaginionej marchewki. Tytuł: Przygody zająca Fistaszka)",
+    "GŁÓWNY POMYSŁ (np. Zajączek, który szukał zaginionej marchewki. Tytuł: Przygody zająca Fistaszka) Wypełnij bądź zostaw puste AI samo coś wybierze i wygeneruje",
     value=st.session_state.get('prompt', ''),
     height=150,
     key="sb_prompt_main"
