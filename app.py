@@ -104,9 +104,9 @@ def clean_title_and_extract_number(text):
     return cleaned_text, scene_num
 
 
-    def create_pdf(story_text, images_data=None):
+def create_pdf(story_text, images_data=None):
     # Jeśli nie przekazano ilustracji, pobierz je z session_state
-        if not images_data and "scene_images" in st.session_state:
+    if not images_data and "scene_images" in st.session_state:
             images_data = st.session_state.scene_images
 
 
@@ -125,7 +125,7 @@ def clean_title_and_extract_number(text):
 
     # --- Nagłówek PDF ---
     pdf.setFont("LiberationSerif-Bold", 18)
-    pdf.drawCentredString(width / 2, y, title)
+    pdf.drawCentredString(width / 2, y, "Opowiadanie AI")
     y -= 40
 
     pdf.setFont("LiberationSerif", 12)
@@ -160,11 +160,6 @@ def clean_title_and_extract_number(text):
                     pdf.showPage()
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
-
-
-
-
-
 
 
                 # --- Ilustracja po scenie (poprawione wstawianie obrazków) ---
