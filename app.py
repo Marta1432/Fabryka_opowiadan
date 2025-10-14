@@ -165,12 +165,9 @@ def create_pdf(story_text, images_data=None):
                 # --- Ilustracja po scenie (poprawione wstawianie obrazków) ---
         if scene_num > 0 and scene_num in images_data:
             try:
-                img_url = images_data[scene_num]
-                # pobranie obrazka jako bajty
-                response = requests.get(img_url, timeout=15)
-                response.raise_for_status()
-                img_bytes = io.BytesIO(response.content)
+                img_bytes = io.BytesIO(images_data[scene_num])  # bajty z pamięci
                 img_reader = ImageReader(img_bytes)
+
 
                 # dopasowanie rozmiaru obrazka do szerokości PDF
                 iw, ih = img_reader.getSize()
@@ -260,16 +257,23 @@ def handle_image_generation(scenes):
                     n=1,
                     size="1024x1024"
                 )
+
                 image_url = response["data"][0]["url"]
-                st.session_state.scene_images[action_idx] = image_url
-                st.success(f"✅ Ilustracja dla Sceny {action_idx} gotowa!")
-                
+                try:
+                    img_data = requests.get(image_url, timeout=20).content
+                    st.session_state.scene_images[action_idx] = img_data  # zapisujemy bajty, nie URL
+                    st.success(f"✅ Ilustracja dla Sceny {action_idx} gotowa!")
+
+                except Exception as e:
+                    st.error(f"❌ Nie udało się pobrać obrazu: {e}")
+
             except Exception as e:
                 st.error(f"❌ Błąd generowania ilustracji dla Sceny {action_idx}: {e}")
+
                 
-            st.session_state['generate_scene_idx'] = None
-            st.session_state['regenerate_scene_idx'] = None
-            st.rerun()
+        st.session_state['generate_scene_idx'] = None
+        st.session_state['regenerate_scene_idx'] = None
+        st.rerun()
 
 
 # --- Sekcja logowania API (Stały element Sidebar) ---
