@@ -134,70 +134,85 @@ def create_pdf(story_text, images_data=None):
     lines = story_text.split("\n")
     scene_num = 0
 
+
+    scene_num = 0
+    current_scene_text = ""
+
     for line in lines:
-        # Rozpoznaj sceny / rozdziały
         if line.strip().lower().startswith("rozdział"):
+        # Jeśli kończymy poprzednią scenę — narysuj jej ilustrację
+            if scene_num > 0 and scene_num in images_data:
+                try:
+                    img_bytes = io.BytesIO(images_data[scene_num])
+                    img_bytes.seek(0)
+                    img_reader = ImageReader(img_bytes)
+                    img_bytes.seek(0)
+
+                    iw, ih = img_reader.getSize()
+                    max_w = text_width * 0.75
+                    scale = min(1.0, max_w / float(iw))
+                    img_w = iw * scale
+                    img_h = ih * scale
+
+                    if y - img_h < margin:
+                        pdf.showPage()
+                        pdf.setFont("LiberationSerif", 12)
+                        y = height - margin
+
+                    x_center = (width - img_w) / 2
+                    pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+                    y -= img_h + 30
+
+                except Exception as e:
+                    st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+
+            # Nowa scena
             scene_num += 1
             pdf.setFont("LiberationSerif-Bold", 14)
             pdf.drawString(margin, y, line.strip())
             y -= 25
             pdf.setFont("LiberationSerif", 12)
+
         else:
-            # Zwykły tekst
+            # Normalny tekst
             if not line.strip():
                 y -= 10
                 continue
-
-            # Dziel linie dłuższe niż szerokość strony
             while line:
                 text_line = line[:90]
                 line = line[90:]
                 pdf.drawString(margin, y, text_line)
                 y -= 15
-
-                # Nowa strona jeśli brak miejsca
                 if y < margin:
                     pdf.showPage()
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
 
+    # Po ostatniej scenie — dodaj jej obraz
+    if scene_num > 0 and scene_num in images_data:
+        try:
+            img_bytes = io.BytesIO(images_data[scene_num])
+            img_bytes.seek(0)
+            img_reader = ImageReader(img_bytes)
+            img_bytes.seek(0)
 
-                # --- Ilustracja po scenie (poprawione wstawianie obrazków) ---
-        if scene_num > 0 and scene_num in images_data:
-            try:
-                img_bytes = io.BytesIO(images_data[scene_num])  # bajty z pamięci
+            iw, ih = img_reader.getSize()
+            max_w = text_width * 0.75
+            scale = min(1.0, max_w / float(iw))
+            img_w = iw * scale
+            img_h = ih * scale
 
-                # Reset kursora przed i po utworzeniu ImageReadera
-                img_bytes.seek(0)
-                img_reader = ImageReader(img_bytes)
-                img_bytes.seek(0)
+            if y - img_h < margin:
+                pdf.showPage()
+                pdf.setFont("LiberationSerif", 12)
+                y = height - margin
 
+            x_center = (width - img_w) / 2
+            pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+            y -= img_h + 30
 
-
-                # dopasowanie rozmiaru obrazka do szerokości PDF
-                iw, ih = img_reader.getSize()
-                max_w = text_width * 0.75
-                scale = min(1.0, max_w / float(iw))
-                img_w = iw * scale
-                img_h = ih * scale
-
-                # jeśli brak miejsca na stronie, utwórz nową
-                if y - img_h < margin:
-                    pdf.showPage()
-                    pdf.setFont("LiberationSerif", 12)
-                    y = height - margin
-
-                # wyśrodkowanie ilustracji
-                x_center = (width - img_w) / 2
-                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-                y -= img_h + 30
-
-            except Exception as e:
-                st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
-
-
-
-
+        except Exception as e:
+            st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
 
 
 
@@ -665,7 +680,7 @@ if st.session_state.step == "final":
     
     if st.session_state.story:
 
-        st.write("🧩 Debug: zawartość scene_images", st.session_state.scene_images)
+        # st.write("🧩 Debug: zawartość scene_images", st.session_state.scene_images)   - pokazuje czy wyswietla sie obrazek czy wyskakuje blad
 
 
         with st.spinner("Przygotowuję PDF (tekst + ilustracje)..."):
