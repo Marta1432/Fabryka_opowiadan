@@ -104,18 +104,28 @@ def clean_title_and_extract_number(text):
     return cleaned_text, scene_num
 
 
+
+
+
+
 def create_pdf(story_text, images_data=None):
+    import io
+    import requests
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.lib.utils import ImageReader
+
     # Jeśli nie przekazano ilustracji, pobierz je z session_state
     if not images_data and "scene_images" in st.session_state:
-            images_data = st.session_state.scene_images
-
-
+        images_data = st.session_state.scene_images
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    # --- Czcionki z polskimi znakami (Liberation Serif) ---
+    # --- Czcionki z polskimi znakami ---
     pdfmetrics.registerFont(TTFont("LiberationSerif", "LiberationSerif-Regular.ttf"))
     pdfmetrics.registerFont(TTFont("LiberationSerif-Bold", "LiberationSerif-Bold.ttf"))
 
@@ -130,24 +140,22 @@ def create_pdf(story_text, images_data=None):
 
     pdf.setFont("LiberationSerif", 12)
 
-    # --- Przetwarzanie opowiadania ---
     lines = story_text.split("\n")
     scene_num = 0
 
-
-    scene_num = 0
-    current_scene_text = ""
-
     for line in lines:
+        # --- Nowy rozdział ---
         if line.strip().lower().startswith("rozdział"):
-        # Jeśli kończymy poprzednią scenę — narysuj jej ilustrację
-            if scene_num > 0 and scene_num in images_data:
+            # Jeśli kończymy poprzednią scenę — narysuj jej ilustrację
+            if scene_num > 0 and str(scene_num) in images_data:
                 try:
-                    img_bytes = io.BytesIO(images_data[scene_num])
-                    img_bytes.seek(0)
-                    img_reader = ImageReader(img_bytes)
-                    img_bytes.seek(0)
+                    image_url = images_data[str(scene_num)]
+                    if isinstance(image_url, str) and image_url.startswith("http"):
+                        img_bytes = requests.get(image_url, timeout=15).content
+                    else:
+                        continue  # pomiń, jeśli nie ma poprawnego linku
 
+                    img_reader = ImageReader(io.BytesIO(img_bytes))
                     iw, ih = img_reader.getSize()
                     max_w = text_width * 0.75
                     scale = min(1.0, max_w / float(iw))
@@ -188,37 +196,39 @@ def create_pdf(story_text, images_data=None):
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
 
-    # Po ostatniej scenie — dodaj jej obraz
-    if scene_num > 0 and scene_num in images_data:
+    # --- Po ostatniej scenie — dodaj jej obraz ---
+    if scene_num > 0 and str(scene_num) in images_data:
         try:
-            img_bytes = io.BytesIO(images_data[scene_num])
-            img_bytes.seek(0)
-            img_reader = ImageReader(img_bytes)
-            img_bytes.seek(0)
+            image_url = images_data[str(scene_num)]
+            if isinstance(image_url, str) and image_url.startswith("http"):
+                img_bytes = requests.get(image_url, timeout=15).content
+            else:
+                img_bytes = None
 
-            iw, ih = img_reader.getSize()
-            max_w = text_width * 0.75
-            scale = min(1.0, max_w / float(iw))
-            img_w = iw * scale
-            img_h = ih * scale
+            if img_bytes:
+                img_reader = ImageReader(io.BytesIO(img_bytes))
+                iw, ih = img_reader.getSize()
+                max_w = text_width * 0.75
+                scale = min(1.0, max_w / float(iw))
+                img_w = iw * scale
+                img_h = ih * scale
 
-            if y - img_h < margin:
-                pdf.showPage()
-                pdf.setFont("LiberationSerif", 12)
-                y = height - margin
+                if y - img_h < margin:
+                    pdf.showPage()
+                    pdf.setFont("LiberationSerif", 12)
+                    y = height - margin
 
-            x_center = (width - img_w) / 2
-            pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-            y -= img_h + 30
+                x_center = (width - img_w) / 2
+                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+                y -= img_h + 30
 
         except Exception as e:
             st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
 
-
-
     pdf.save()
     buffer.seek(0)
     return buffer
+
 
 
 
@@ -590,9 +600,18 @@ if st.session_state.step == "plan" and st.session_state.plan:
         handle_image_generation(scenes)
 
 
+
     # PRZYCISK PRZEJŚCIA DALEJ
     st.markdown("---")
     if st.button("✍️ Akceptuję plan i przejdź do pisania", key="go_to_writing_clean"):
+        # 🔹 Zapisz kopię ilustracji z planu, by PDF mógł ich potem użyć
+        if 'scene_images' in st.session_state and st.session_state.scene_images:
+            st.session_state.story_images = st.session_state.scene_images.copy()
+            st.write("✅ Ilustracje zapisane do story_images:", list(st.session_state.story_images.keys()))
+        else:
+            st.warning("⚠️ Brak ilustracji w scene_images — PDF będzie bez obrazków.")
+
+        # 🔹 Wyczyść ewentualne flagi generowania i przejdź dalej
         st.session_state.step = "writing"
         st.session_state['generate_scene_idx'] = None
         st.session_state['regenerate_scene_idx'] = None
@@ -679,15 +698,26 @@ if st.session_state.step == "final":
     st.subheader("Pobieranie pliku PDF")
     
     if st.session_state.story:
-
-        # st.write("🧩 Debug: zawartość scene_images", st.session_state.scene_images)   - pokazuje czy wyswietla sie obrazek czy wyskakuje blad
-
+        # (opcjonalny debug) – pokazuje, co mamy w pamięci
+        # st.write("🧩 Debug: scene_images:", st.session_state.get('scene_images', {}))
+        # st.write("🧩 Debug: story_images:", st.session_state.get('story_images', {}))
 
         with st.spinner("Przygotowuję PDF (tekst + ilustracje)..."):
+            # Najpierw próbujemy użyć zapisanych ilustracji z planu
+            images_to_use = st.session_state.get('story_images', st.session_state.get('scene_images', {}))
+
+            # Debug — sprawdzamy, czy PDF faktycznie widzi obrazki
+            if images_to_use:
+                st.write("🖼️ Ilustracje dostępne dla PDF:", list(images_to_use.keys()))
+            else:
+                st.warning("⚠️ Brak zapisanych ilustracji — PDF będzie bez obrazków.")
+
+            # Tworzymy PDF z właściwym zestawem ilustracji
             pdf_buffer = create_pdf(
-                st.session_state.story, 
-                st.session_state.scene_images
+                st.session_state.story,
+                images_to_use
             )
+
 
         st.download_button(
             label="📥 Kliknij tutaj, aby pobrać opowiadanie jako PDF (tekst + obrazy)",
