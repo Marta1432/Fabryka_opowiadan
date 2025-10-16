@@ -166,7 +166,12 @@ def create_pdf(story_text, images_data=None):
         if scene_num > 0 and scene_num in images_data:
             try:
                 img_bytes = io.BytesIO(images_data[scene_num])  # bajty z pamięci
+
+                # Reset kursora przed i po utworzeniu ImageReadera
+                img_bytes.seek(0)
                 img_reader = ImageReader(img_bytes)
+                img_bytes.seek(0)
+
 
 
                 # dopasowanie rozmiaru obrazka do szerokości PDF
