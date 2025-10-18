@@ -117,6 +117,53 @@ def create_pdf(story_text, images_data=None):
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.lib.utils import ImageReader
 
+    def _get_image_bytes(images_dict, scene_no):
+        """Zwraca bytes obrazka dla danej sceny (obsługuje klucze str/int i różne formaty wartości)."""
+        if not images_dict:
+            return None
+
+        cand_keys = [str(scene_no), scene_no]  # np. "1" i 1
+        val = None
+        for ck in cand_keys:
+            if ck in images_dict:
+                val = images_dict[ck]
+                break
+
+        if val is None:
+            return None
+
+        # 1️⃣ dict z 'buffer'
+        if isinstance(val, dict) and 'buffer' in val:
+            v = val['buffer']
+            if isinstance(v, bytes):
+                return v
+            if hasattr(v, "read"):
+                v.seek(0)
+                return v.read()
+            return None
+
+        # 2️⃣ surowe bajty
+        if isinstance(val, (bytes, bytearray)):
+            return bytes(val)
+
+        # 3️⃣ BytesIO
+        if hasattr(val, "read"):
+            try:
+                val.seek(0)
+            except Exception:
+                pass
+            return val.read()
+
+        # 4️⃣ URL
+        if isinstance(val, str) and val.startswith(("http://", "https://")):
+            try:
+                return requests.get(val, timeout=20).content
+            except Exception:
+                return None
+
+        return None
+
+
     # Jeśli nie przekazano ilustracji, pobierz je z session_state
     if not images_data and "scene_images" in st.session_state:
         images_data = st.session_state.scene_images
@@ -146,16 +193,16 @@ def create_pdf(story_text, images_data=None):
     for line in lines:
         # --- Nowy rozdział ---
         if line.strip().lower().startswith("rozdział"):
-            # Jeśli kończymy poprzednią scenę — narysuj jej ilustrację
-            if scene_num > 0 and str(scene_num) in images_data:
+                 
+            if scene_num > 0:
                 try:
-                    image_url = images_data[str(scene_num)]
-                    if isinstance(image_url, str) and image_url.startswith("http"):
-                        img_bytes = requests.get(image_url, timeout=15).content
-                    else:
-                        continue  # pomiń, jeśli nie ma poprawnego linku
+                    img_bytes = _get_image_bytes(images_data, scene_num)
+                    if not img_bytes:
+                        continue
 
-                    img_reader = ImageReader(io.BytesIO(img_bytes))
+                    bio = io.BytesIO(img_bytes)
+                    bio.seek(0)
+                    img_reader = ImageReader(bio)
                     iw, ih = img_reader.getSize()
                     max_w = text_width * 0.75
                     scale = min(1.0, max_w / float(iw))
@@ -168,6 +215,7 @@ def create_pdf(story_text, images_data=None):
                         y = height - margin
 
                     x_center = (width - img_w) / 2
+                    bio.seek(0)
                     pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
                     y -= img_h + 30
 
@@ -196,34 +244,39 @@ def create_pdf(story_text, images_data=None):
                     pdf.setFont("LiberationSerif", 12)
                     y = height - margin
 
+
+
+
+
     # --- Po ostatniej scenie — dodaj jej obraz ---
-    if scene_num > 0 and str(scene_num) in images_data:
+    if scene_num > 0:
         try:
-            image_url = images_data[str(scene_num)]
-            if isinstance(image_url, str) and image_url.startswith("http"):
-                img_bytes = requests.get(image_url, timeout=15).content
-            else:
-                img_bytes = None
+            img_bytes = _get_image_bytes(images_data, scene_num)
+            if not img_bytes:
+                pass
 
-            if img_bytes:
-                img_reader = ImageReader(io.BytesIO(img_bytes))
-                iw, ih = img_reader.getSize()
-                max_w = text_width * 0.75
-                scale = min(1.0, max_w / float(iw))
-                img_w = iw * scale
-                img_h = ih * scale
+            bio = io.BytesIO(img_bytes)
+            bio.seek(0)
+            img_reader = ImageReader(bio)
+            iw, ih = img_reader.getSize()
+            max_w = text_width * 0.75
+            scale = min(1.0, max_w / float(iw))
+            img_w = iw * scale
+            img_h = ih * scale
 
-                if y - img_h < margin:
-                    pdf.showPage()
-                    pdf.setFont("LiberationSerif", 12)
-                    y = height - margin
+            if y - img_h < margin:
+                pdf.showPage()
+                pdf.setFont("LiberationSerif", 12)
+                y = height - margin
 
-                x_center = (width - img_w) / 2
-                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-                y -= img_h + 30
+            x_center = (width - img_w) / 2
+            bio.seek(0)
+            pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+            y -= img_h + 30
 
         except Exception as e:
             st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+
 
     pdf.save()
     buffer.seek(0)
@@ -604,18 +657,26 @@ if st.session_state.step == "plan" and st.session_state.plan:
     # PRZYCISK PRZEJŚCIA DALEJ
     st.markdown("---")
     if st.button("✍️ Akceptuję plan i przejdź do pisania", key="go_to_writing_clean"):
-        # 🔹 Zapisz kopię ilustracji z planu, by PDF mógł ich potem użyć
+        # 🔹 Zapisz kopię ilustracji z planu i ujednolić klucze na stringi ("1","2",...)
         if 'scene_images' in st.session_state and st.session_state.scene_images:
-            st.session_state.story_images = st.session_state.scene_images.copy()
+            normalized = {}
+            for k, v in st.session_state.scene_images.items():
+                key_str = str(k)
+                # v może być: bytes, BytesIO, URL (str), albo dict z 'buffer'
+                if isinstance(v, dict) and 'buffer' in v:
+                    normalized[key_str] = v['buffer']
+                else:
+                    normalized[key_str] = v
+            st.session_state.story_images = normalized
             st.write("✅ Ilustracje zapisane do story_images:", list(st.session_state.story_images.keys()))
         else:
             st.warning("⚠️ Brak ilustracji w scene_images — PDF będzie bez obrazków.")
 
-        # 🔹 Wyczyść ewentualne flagi generowania i przejdź dalej
         st.session_state.step = "writing"
         st.session_state['generate_scene_idx'] = None
         st.session_state['regenerate_scene_idx'] = None
         st.rerun()
+
 
 
 # --- KROK 3: WRITING (Generowanie pełnej historii) ---
