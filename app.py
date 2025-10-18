@@ -109,8 +109,7 @@ def clean_title_and_extract_number(text):
 
 
 def create_pdf(story_text, images_data=None):
-    import io
-    import requests
+
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfbase import pdfmetrics
@@ -195,32 +194,31 @@ def create_pdf(story_text, images_data=None):
         if line.strip().lower().startswith("rozdział"):
                  
             if scene_num > 0:
+                # --- Po nagłówku rozdziału wstaw ilustrację tej sceny (jeśli istnieje) ---
                 try:
                     img_bytes = _get_image_bytes(images_data, scene_num)
-                    if not img_bytes:
-                        continue
+                    if img_bytes:
+                        bio = io.BytesIO(img_bytes)
+                        bio.seek(0)
+                        img_reader = ImageReader(bio)
+                        iw, ih = img_reader.getSize()
+                        max_w = text_width * 0.75
+                        scale = min(1.0, max_w / float(iw))
+                        img_w = iw * scale
+                        img_h = ih * scale
 
-                    bio = io.BytesIO(img_bytes)
-                    bio.seek(0)
-                    img_reader = ImageReader(bio)
-                    iw, ih = img_reader.getSize()
-                    max_w = text_width * 0.75
-                    scale = min(1.0, max_w / float(iw))
-                    img_w = iw * scale
-                    img_h = ih * scale
+                        if y - img_h < margin:
+                            pdf.showPage()
+                            pdf.setFont("LiberationSerif", 12)
+                            y = height - margin
 
-                    if y - img_h < margin:
-                        pdf.showPage()
-                        pdf.setFont("LiberationSerif", 12)
-                        y = height - margin
-
-                    x_center = (width - img_w) / 2
-                    bio.seek(0)
-                    pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-                    y -= img_h + 30
-
+                        x_center = (width - img_w) / 2
+                        bio.seek(0)
+                        pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+                        y -= img_h + 30
                 except Exception as e:
-                    st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
+                    st.warning(f"⚠️ Nie udało się dodać ilustracji dla rozdziału {scene_num}: {e}")
+
 
             # Nowa scena
             scene_num += 1
@@ -253,26 +251,27 @@ def create_pdf(story_text, images_data=None):
         try:
             img_bytes = _get_image_bytes(images_data, scene_num)
             if not img_bytes:
-                pass
+                st.warning(f"⚠️ Brak danych ilustracji dla sceny {scene_num}. Pomijam.")
+            else:
+                bio = io.BytesIO(img_bytes)
+                bio.seek(0)
+                img_reader = ImageReader(bio)
+                iw, ih = img_reader.getSize()
+                max_w = text_width * 0.75
+                scale = min(1.0, max_w / float(iw))
+                img_w = iw * scale
+                img_h = ih * scale
 
-            bio = io.BytesIO(img_bytes)
-            bio.seek(0)
-            img_reader = ImageReader(bio)
-            iw, ih = img_reader.getSize()
-            max_w = text_width * 0.75
-            scale = min(1.0, max_w / float(iw))
-            img_w = iw * scale
-            img_h = ih * scale
+                if y - img_h < margin:
+                    pdf.showPage()
+                    pdf.setFont("LiberationSerif", 12)
+                    y = height - margin
 
-            if y - img_h < margin:
-                pdf.showPage()
-                pdf.setFont("LiberationSerif", 12)
-                y = height - margin
+                x_center = (width - img_w) / 2
+                bio.seek(0)
+                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
+                y -= img_h + 30
 
-            x_center = (width - img_w) / 2
-            bio.seek(0)
-            pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-            y -= img_h + 30
 
         except Exception as e:
             st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
@@ -668,7 +667,7 @@ if st.session_state.step == "plan" and st.session_state.plan:
                 else:
                     normalized[key_str] = v
             st.session_state.story_images = normalized
-            st.write("✅ Ilustracje zapisane do story_images:", list(st.session_state.story_images.keys()))
+            
         else:
             st.warning("⚠️ Brak ilustracji w scene_images — PDF będzie bez obrazków.")
 
@@ -778,6 +777,8 @@ if st.session_state.step == "final":
                 st.session_state.story,
                 images_to_use
             )
+            for k, v in images_to_use.items():
+                st.write(f"🔍 Klucz {k}: typ={type(v)}, długość={len(v) if isinstance(v, (bytes, bytearray)) else 'nieokreślono'}")
 
 
         st.download_button(
