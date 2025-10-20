@@ -1,4 +1,3 @@
-import os
 import io
 import re
 import json
@@ -11,64 +10,59 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
-# --- Rejestracja czcionek dla ReportLab (dla polskich znaków w PDF) ---
-try:
-    # Wymaga plików LiberationSerif-Regular.ttf i LiberationSerif-Bold.ttf
-    pdfmetrics.registerFont(TTFont('Serif', 'LiberationSerif-Regular.ttf'))
-    pdfmetrics.registerFont(TTFont('Serif-Bold', 'LiberationSerif-Bold.ttf'))
-except Exception:
-    # Domyślne czcionki na wypadek braku plików .ttf
-    pdfmetrics.registerFont(TTFont('Serif', 'Helvetica'))
-    pdfmetrics.registerFont(TTFont('Serif-Bold', 'Helvetica-Bold'))
-    st.warning("⚠️ Nie udało się wczytać czcionek LiberationSerif. Używam domyślnych czcionek bez polskich znaków w PDF.")
-
-# --- Wczytanie presetów stylów ilustracji ---
-try:
-    with open("style_presets.json", "r", encoding="utf-8") as f:
-        STYLE_PROMPTS = json.load(f)
-except Exception:
-    STYLE_PROMPTS = {}
-    st.error("Brak pliku style_presets.json.")
-
-
 # --- Konfiguracja strony ---
 st.set_page_config(page_title="Fabryka Opowiadań", page_icon="📚", layout="wide")
 st.title("✨ Fabryka Opowiadań AI")
 st.caption("Twoje miejsce do tworzenia niezapomnianych opowiadań ✨")
 
+# --- Rejestracja czcionek dla ReportLab (polskie znaki w PDF) ---
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+
+pdfmetrics.registerFont(TTFont('Serif', 'LiberationSerif-Regular.ttf'))
+pdfmetrics.registerFont(TTFont('Serif-Bold', 'LiberationSerif-Bold.ttf'))
+registerFontFamily('Serif', normal='Serif', bold='Serif-Bold')
+
+with open("style_presets.json", "r", encoding="utf-8") as f:
+    STYLE_PROMPTS = json.load(f)
+
 
 # --- Inicjalizacja stanu sesji ---
-# Definiowanie kroków aplikacji: "start", "plan", "writing", "final"
 def init_session_state():
-    """Inicjalizuje wszystkie niezbędne zmienne stanu sesji."""
+    """Ustawia wszystkie zmienne sesji, jeśli jeszcze nie istnieją."""
     defaults = {
+        # Etap działania aplikacji
         "step": "start",
         "api_key": "",
+        
+        # Dane historii
         "plan": None,
         "story": None,
         "scene_images": {},
+        
+        # Ilustracje – kontrola generowania
         "generate_scene_idx": None,
         "regenerate_scene_idx": None,
-        "num_images": 3, # Domyślna wartość
-        "style": list(STYLE_PROMPTS.keys())[0] if STYLE_PROMPTS else "Bajkowy", # Domyślny styl
+        "num_images": 3,
+        "style": list(STYLE_PROMPTS.keys())[0] if STYLE_PROMPTS else "Bajkowy",
         "want_images": "Tak",
         
-        # Ustawienia domyślne, które są kluczowe dla promptu
+        # Parametry promptu (ustawienia kreatywne)
         "genre": "Komedia",
-        "length": "2250 słów", # Klucz: słowa
-        "audience": "Dziecięcy (prosty język, bajkowy)", 
-        "hero": "", 
+        "length": "2250 słów",
+        "audience": "Dziecięcy (prosty język, bajkowy)",
+        "hero": "",
         "side_characters_count": 1,
-        "side_characters_desc": "", 
+        "side_characters_desc": "",
         "location": "Jedno miejsce (np. tajemniczy las)",
-        "prompt": "" # Główny pomysł
+        "prompt": ""
     }
+    
+    # Wczytaj tylko brakujące wartości
     for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+        st.session_state.setdefault(key, value)
 
+# Inicjalizacja po starcie aplikacji
 init_session_state()
-
 
 # --- Funkcje pomocnicze ---
 
@@ -95,7 +89,6 @@ def get_preferences_prompt():
     """
     return preferences.strip()
 
-
 def clean_title_and_extract_number(text):
     """Czyści tekst z dodatkowych symboli Markdown (jak ##) i próbuje wyciągnąć numer sceny."""
     cleaned_text = text.replace('#', '').replace('*', '').strip()
@@ -103,19 +96,8 @@ def clean_title_and_extract_number(text):
     scene_num = int(match.group(0)) if match else None
     return cleaned_text, scene_num
 
-
-
-
-
-
 def create_pdf(story_text, images_data=None):
-
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.lib.utils import ImageReader
-
+    
     def _get_image_bytes(images_dict, scene_no):
         """Zwraca bytes obrazka dla danej sceny (obsługuje klucze str/int i różne formaty wartości)."""
         if not images_dict:
@@ -162,235 +144,221 @@ def create_pdf(story_text, images_data=None):
 
         return None
 
-
     # Jeśli nie przekazano ilustracji, pobierz je z session_state
-    if not images_data and "scene_images" in st.session_state:
+    if images_data is None and "scene_images" in st.session_state:
         images_data = st.session_state.scene_images
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    # --- Czcionki z polskimi znakami ---
+        # --- Czcionki z polskimi znakami ---
     pdfmetrics.registerFont(TTFont("LiberationSerif", "LiberationSerif-Regular.ttf"))
     pdfmetrics.registerFont(TTFont("LiberationSerif-Bold", "LiberationSerif-Bold.ttf"))
 
-    margin = 50
+    margin = 60
     text_width = width - 2 * margin
     y = height - margin
 
-    # --- Nagłówek PDF ---
-    pdf.setFont("LiberationSerif-Bold", 18)
-    pdf.drawCentredString(width / 2, y, "Opowiadanie AI")
-    y -= 40
+    # --- STRONA TYTUŁOWA ---
+    pdf.setFont("LiberationSerif-Bold", 22)
+    pdf.drawCentredString(width / 2, y, "✨ Opowiadanie stworzone przez Fabrykę Opowiadań AI ✨")
+    y -= 30
+    pdf.setFont("LiberationSerif", 14)
+    pdf.drawCentredString(width / 2, y, "Autor: Bajkowa Mama & AI")
+    y -= 20
+
+    pdf.setLineWidth(0.5)
+    pdf.line(margin, y, width - margin, y)
+    y -= 50
 
     pdf.setFont("LiberationSerif", 12)
 
+    # --- Numeracja stron ---
+    page_num = 1
+
+    def new_page():
+        """Nowa strona z numerem."""
+        nonlocal y, page_num
+        pdf.showPage()
+        pdf.setFont("LiberationSerif", 12)
+        page_num += 1
+        y = height - margin
+        pdf.setFont("LiberationSerif", 10)
+        pdf.drawCentredString(width / 2, 30, f"Strona {page_num}")
+        pdf.setFont("LiberationSerif", 12)
+
+    # --- Główna treść ---
     lines = story_text.split("\n")
-    scene_num = 0
+    scene_num = 1
 
     for line in lines:
-        # --- Nowy rozdział ---
-        if line.strip().lower().startswith("rozdział"):
-                 
-            if scene_num > 0:
-                # --- Po nagłówku rozdziału wstaw ilustrację tej sceny (jeśli istnieje) ---
-                try:
-                    img_bytes = _get_image_bytes(images_data, scene_num)
-                    if img_bytes:
-                        bio = io.BytesIO(img_bytes)
-                        bio.seek(0)
-                        img_reader = ImageReader(bio)
-                        iw, ih = img_reader.getSize()
-                        max_w = text_width * 0.75
-                        scale = min(1.0, max_w / float(iw))
-                        img_w = iw * scale
-                        img_h = ih * scale
+        line = line.strip()
+        if not line:
+            y -= 10
+            continue
 
-                        if y - img_h < margin:
-                            pdf.showPage()
-                            pdf.setFont("LiberationSerif", 12)
-                            y = height - margin
-
-                        x_center = (width - img_w) / 2
-                        bio.seek(0)
-                        pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-                        y -= img_h + 30
-                except Exception as e:
-                    st.warning(f"⚠️ Nie udało się dodać ilustracji dla rozdziału {scene_num}: {e}")
-
-
-            # Nowa scena
-            scene_num += 1
-            pdf.setFont("LiberationSerif-Bold", 14)
-            pdf.drawString(margin, y, line.strip())
+        # --- Tytuł rozdziału ---
+        if line.lower().startswith("rozdział"):
+            pdf.setFont("LiberationSerif-Bold", 16)
+            pdf.drawString(margin, y, line)
+            y -= 18
+            pdf.setLineWidth(0.3)
+            pdf.line(margin, y, margin + 180, y)
             y -= 25
             pdf.setFont("LiberationSerif", 12)
 
+            # --- Ilustracja dla rozdziału ---
+            try:
+                img_bytes = _get_image_bytes(images_data, scene_num)
+                if img_bytes:
+                    bio = io.BytesIO(img_bytes)
+                    img_reader = ImageReader(bio)
+                    iw, ih = img_reader.getSize()
+                    max_w = text_width * 0.7
+                    scale = min(1.0, max_w / float(iw))
+                    img_w = iw * scale
+                    img_h = ih * scale
+
+                    if y - img_h < margin:
+                        new_page()
+
+                    x_center = (width - img_w) / 2
+                    pdf.drawImage(img_reader, x_center, y - img_h - 10,
+                                  width=img_w, height=img_h)
+                    y -= img_h + 30
+            except Exception as e:
+                st.warning(f"⚠️ Nie udało się dodać ilustracji dla rozdziału {scene_num}: {e}")
+
+            scene_num += 1
+
         else:
-            # Normalny tekst
-            if not line.strip():
-                y -= 10
-                continue
-            while line:
-                text_line = line[:90]
-                line = line[90:]
+            # --- Tekst opowiadania ---
+            while len(line) > 0:
+                text_line = line[:95]
+                line = line[95:]
                 pdf.drawString(margin, y, text_line)
                 y -= 15
-                if y < margin:
-                    pdf.showPage()
-                    pdf.setFont("LiberationSerif", 12)
-                    y = height - margin
+                if y < 80:
+                    new_page()
 
-
-
-
-
-    # --- Po ostatniej scenie — dodaj jej obraz ---
-    if scene_num > 0:
-        try:
-            img_bytes = _get_image_bytes(images_data, scene_num)
-            if not img_bytes:
-                st.warning(f"⚠️ Brak danych ilustracji dla sceny {scene_num}. Pomijam.")
-            else:
-                bio = io.BytesIO(img_bytes)
-                bio.seek(0)
-                img_reader = ImageReader(bio)
-                iw, ih = img_reader.getSize()
-                max_w = text_width * 0.75
-                scale = min(1.0, max_w / float(iw))
-                img_w = iw * scale
-                img_h = ih * scale
-
-                if y - img_h < margin:
-                    pdf.showPage()
-                    pdf.setFont("LiberationSerif", 12)
-                    y = height - margin
-
-                x_center = (width - img_w) / 2
-                bio.seek(0)
-                pdf.drawImage(img_reader, x_center, y - img_h - 10, width=img_w, height=img_h)
-                y -= img_h + 30
-
-
-        except Exception as e:
-            st.warning(f"⚠️ Nie udało się dodać ilustracji dla sceny {scene_num}: {e}")
-
+    # --- Stopka na końcu ---
+    pdf.setFont("LiberationSerif", 10)
+    pdf.drawCentredString(width / 2, 40, f"Fabryka Opowiadań AI © {page_num} str.")
 
     pdf.save()
     buffer.seek(0)
     return buffer
-
-
-
-
-
-
-
+    
 
 def handle_image_generation(scenes):
     """
-    Logika wywołująca OpenAI Image API (DALL-E) na podstawie wskaźników z session_state.
-    Wykonywana PO pętli wyświetlającej przyciski.
+    Logika generowania ilustracji przy użyciu OpenAI Image API (DALL-E).
+    Wykonywana po kliknięciu przycisku generowania lub regeneracji.
     """
-    
+
     action_idx = st.session_state.get('generate_scene_idx')
     action_is_regenerate = False
 
+    # Jeśli nie kliknięto nowej ilustracji, sprawdzamy, czy kliknięto regenerację
     if action_idx is None:
         action_idx = st.session_state.get('regenerate_scene_idx')
         action_is_regenerate = True
-    
-    if action_idx is not None:
-        
-        # Ustalenie, która scena ma być ilustrowana (idx - 1)
-        if 0 <= action_idx - 1 < len(scenes):
-            scene_to_illustrate = scenes[action_idx - 1] 
-        else:
-            st.error(f"❌ Błąd: Numer sceny {action_idx} poza zakresem planu.")
-            st.session_state['generate_scene_idx'] = None
-            st.session_state['regenerate_scene_idx'] = None
-            return
 
-        with st.spinner(f"⏳ {'Generuję ponownie' if action_is_regenerate else 'Tworzę'} ilustrację dla Sceny {action_idx}..."):
-            
-            # Przygotowanie prompta DALL-E
-            style_key = st.session_state.style
-            base_prompt = STYLE_PROMPTS.get(style_key, "")
-            
-            # Użycie wyrażenia regularnego do usunięcia nagłówka "SCENA X:"
-            clean_description = re.sub(r"(SCENA|ROZDZIAŁ)\s+\d+[:.]?\s*", "", scene_to_illustrate, flags=re.IGNORECASE).strip()
-            
-            # ZMODYFIKOWANY PROMPT: Zdecydowane żądanie braku tekstu i ramek
-            prompt = f"""
-            ABSOLUTNIE ŻADNYCH LITER, ŻADNEGO TEKSTU, ŻADNYCH NAPISÓW, ŻADNYCH RAMEK I OBRAMOWAŃ. TO JEST ILUSTRACJA DO EBOOKA.
-            
-            Ilustracja do ebooka, sceny opowiadania. 
-            Opis sceny: {clean_description}.
-            Styl graficzny: {style_key.lower()} – {base_prompt}.
-            Wysoka jakość, spójny styl.
-            """
-            
-            try:
-                # Używamy DALL-E 3 (najnowszy model, generuje lepsze obrazy)
-                response = openai.Image.create(
-                    model="dall-e-3",
-                    prompt=prompt,
-                    n=1,
-                    size="1024x1024"
-                )
+    # Jeśli żadne działanie nie jest aktywne — kończymy
+    if action_idx is None:
+        return
 
-                image_url = response["data"][0]["url"]
-                try:
-                    img_data = requests.get(image_url, timeout=20).content
-                    st.session_state.scene_images[action_idx] = img_data  # zapisujemy bajty, nie URL
-                    st.success(f"✅ Ilustracja dla Sceny {action_idx} gotowa!")
-
-                except Exception as e:
-                    st.error(f"❌ Nie udało się pobrać obrazu: {e}")
-
-            except Exception as e:
-                st.error(f"❌ Błąd generowania ilustracji dla Sceny {action_idx}: {e}")
-
-                
+    # Sprawdzamy poprawność indeksu
+    if not (0 <= action_idx - 1 < len(scenes)):
+        st.error(f"❌ Błąd: Numer sceny {action_idx} poza zakresem planu.")
         st.session_state['generate_scene_idx'] = None
         st.session_state['regenerate_scene_idx'] = None
-        st.rerun()
+        return
+
+    # Scena, którą ilustrujemy
+    scene_to_illustrate = scenes[action_idx - 1].strip()
+
+    if not scene_to_illustrate:
+        st.warning("⚠️ Nie można wygenerować ilustracji — scena jest pusta.")
+        return
+
+    # (dalszy kod z generowaniem obrazu OpenAI/DALL-E będzie tutaj)
 
 
-# --- Sekcja logowania API (Stały element Sidebar) ---
+    with st.spinner(f"⏳ {'Generuję ponownie' if action_is_regenerate else 'Tworzę'} ilustrację dla Sceny {action_idx}..."):
+
+        # 🔹 Przygotowanie prompta DALL·E (wersja dla openai==0.28.0)
+        style_key = st.session_state.style
+        base_prompt = STYLE_PROMPTS.get(style_key, "")
+        clean_description = re.sub(r"(SCENA|ROZDZIAŁ)\s+\d+[:.]?\s*", "", scene_to_illustrate, flags=re.IGNORECASE).strip()
+
+        prompt = f"""
+        ABSOLUTNIE ŻADNYCH LITER, NAPISÓW, TEKSTU ANI RAMEK.
+        To ilustracja do książki dla dzieci.
+        Opis sceny: {clean_description}.
+        Styl graficzny: {style_key.lower()} – {base_prompt}.
+        """
+
+        try:
+            # 🧠 Stare API (openai==0.28.0)
+            response = openai.Image.create(
+                model="dall-e-3",
+                prompt=prompt,
+                n=1,
+                size="1024x1024"
+            )
+
+            image_url = response["data"][0]["url"]
+
+            # 📥 Pobranie obrazu i zapisanie jako bajty (PDF to widzi!)
+            img_data = requests.get(image_url, timeout=30).content
+
+            # 🔸 ZAPISUJEMY POD KLUCZEM STRINGOWYM, ŻEBY PDF TO ZNALAZŁ
+            st.session_state.scene_images[str(action_idx)] = img_data
+
+            st.success(f"✅ Ilustracja dla Sceny {action_idx} gotowa!")
+
+        except Exception as e:
+            st.error(f"❌ Błąd generowania ilustracji dla Sceny {action_idx}: {e}")
+
+    # 🔁 Resetowanie flag i odświeżenie interfejsu
+    st.session_state['generate_scene_idx'] = None
+    st.session_state['regenerate_scene_idx'] = None
+    st.rerun()
+
+
+# --- Sekcja logowania API (Sidebar) ---
 st.sidebar.header("🔐 Klucz API OpenAI")
 
+# Jeśli klucz jeszcze nie ustawiony
 if not st.session_state.api_key:
-    key_input = st.sidebar.text_input("Wklej swój klucz API:", type="password", key="api_key_input")
+    key_input = st.sidebar.text_input("Wklej swój klucz API:", type="password")
     if key_input:
         st.session_state.api_key = key_input
-        st.rerun()
-    openai.api_key = None
-    st.sidebar.warning("⚠️ Klucz API jest wymagany.")
+        openai.api_key = key_input
+        st.sidebar.success("✅ Klucz API zapisany! Możesz przejść dalej.")
+    else:
+        st.sidebar.warning("⚠️ Aby korzystać z aplikacji, wklej swój klucz API OpenAI.")
 else:
+    # Jeśli klucz już ustawiony
     openai.api_key = st.session_state.api_key
-    st.sidebar.success("✅ Klucz API jest ustawiony.")
-    if st.sidebar.button("🚪 Wyloguj", key="logout_btn"):
-        st.session_state.api_key = ""
-        # Całkowity reset, aby powrócić do kroku startowego
-        keep_keys = ["api_key", "STYLE_PROMPTS"] 
-        keys_to_delete = [key for key in st.session_state.keys() if key not in keep_keys]
-        for key in keys_to_delete:
-            del st.session_state[key]
-        init_session_state() 
+    st.sidebar.success("🔑 Klucz API jest aktywny.")
+
+    if st.sidebar.button("🚪 Wyloguj"):
+        st.session_state.clear()
+        init_session_state()
+        st.sidebar.info("🔄 Wylogowano.")
         st.rerun()
 
-# -----------------------------------------------------------
-# KOREKTA BŁĘDU INDEXOWANIA GATUNKU
-if 'genre' in st.session_state and st.session_state.genre == 'Baśń/Fantasy':
-    st.session_state.genre = 'Bajka/Baśń'
-# -----------------------------------------------------------
 
+# --- Korekta błędu starego gatunku ---
+if st.session_state.get("genre") == "Baśń/Fantasy":
+    st.session_state.genre = "Bajka/Baśń"
 
-# Blokuj działanie aplikacji bez klucza
+# --- Blokada działania bez klucza API ---
 if not st.session_state.api_key:
-    st.info("Aby rozpocząć, wprowadź swój klucz API OpenAI w panelu bocznym.")
+    st.warning("🔒 Wymagany klucz API OpenAI. Wprowadź go w panelu bocznym, aby kontynuować.")
     st.stop()
 
 
@@ -401,9 +369,10 @@ st.sidebar.header("📝 Ustawienia Opowiadania")
 
 # --- KRYTYCZNE POLE: Pomysł na Opowiadanie (TextArea) ---
 st.session_state.prompt = st.sidebar.text_area(
-    "GŁÓWNY POMYSŁ (np. Zajączek, który szukał zaginionej marchewki. Tytuł: Przygody zająca Fistaszka) Wypełnij bądź zostaw puste AI samo coś wybierze i wygeneruje",
+    "✏️ Główny pomysł na opowiadanie:",
+    placeholder="Np. Smok, który bał się ognia...",
     value=st.session_state.get('prompt', ''),
-    height=150,
+    height=200,
     key="sb_prompt_main"
 )
 st.sidebar.markdown("---")
@@ -507,7 +476,7 @@ with st.sidebar.form("story_settings_sidebar"):
         st.session_state.num_images = st.slider(
             "Maksymalna liczba ilustracji (na tyle rozdziałów, ile będzie w planie):",
             min_value=1,
-            max_value=9,
+            max_value=7,
             value=st.session_state.get('num_images', 5),
             key="sb_num_images"
         )
@@ -540,7 +509,7 @@ if submitted_settings:
         structure_prompt = f"""
         Podziel plan na klasyczną strukturę trójdzielną (Akt I - Rozpoczęcie, Akt II - Rozwinięcie, Akt III - Zakończenie). 
         Zachowaj proporcje: Akt I (ok. 25% scen), Akt II (ok. 50% scen), Akt III (ok. 25% scen). 
-        W planie NIE używaj nagłówków Akt I, Akt II, Akt III. Po prostu ułóż sceny w tej logicznej kolejności.
+        W planie NIE używaj nagłówków Akt I, Akt II, Akt III. Po prostu ułóż sceny w tej logicznej kolejności. Nie dodawaj wstępu ani zakończenia poza wymienionymi scenami.
         """
         
         prompt = f"""
@@ -752,41 +721,38 @@ if st.session_state.step == "writing":
 # --- KROK 4: FINAL (Pobieranie i podsumowanie) ---
 if st.session_state.step == "final":
     st.header("4. Opowiadanie gotowe!")
+    st.balloons()
     st.success("Twoja historia została pomyślnie stworzona i jest gotowa do pobrania jako PDF.")
     st.markdown("---")
     
     st.subheader("Pobieranie pliku PDF")
     
     if st.session_state.story:
-        # (opcjonalny debug) – pokazuje, co mamy w pamięci
-        # st.write("🧩 Debug: scene_images:", st.session_state.get('scene_images', {}))
-        # st.write("🧩 Debug: story_images:", st.session_state.get('story_images', {}))
+        
 
         with st.spinner("Przygotowuję PDF (tekst + ilustracje)..."):
             # Najpierw próbujemy użyć zapisanych ilustracji z planu
             images_to_use = st.session_state.get('story_images', st.session_state.get('scene_images', {}))
 
-            # Debug — sprawdzamy, czy PDF faktycznie widzi obrazki
-            if images_to_use:
-                st.write("🖼️ Ilustracje dostępne dla PDF:", list(images_to_use.keys()))
-            else:
-                st.warning("⚠️ Brak zapisanych ilustracji — PDF będzie bez obrazków.")
+            
+                
 
             # Tworzymy PDF z właściwym zestawem ilustracji
             pdf_buffer = create_pdf(
                 st.session_state.story,
                 images_to_use
             )
-            for k, v in images_to_use.items():
-                st.write(f"🔍 Klucz {k}: typ={type(v)}, długość={len(v) if isinstance(v, (bytes, bytearray)) else 'nieokreślono'}")
+            
 
 
         st.download_button(
-            label="📥 Kliknij tutaj, aby pobrać opowiadanie jako PDF (tekst + obrazy)",
-            data=pdf_buffer,
-            file_name="fabryka_opowiadan.pdf",
-            mime="application/pdf"
-        )
+    label="📘 Pobierz gotowy e-book (PDF z ilustracjami)",
+    data=pdf_buffer,
+    file_name="fabryka_opowiadan.pdf",
+    mime="application/pdf",
+    use_container_width=True
+)
+
 
     st.markdown("---")
     
