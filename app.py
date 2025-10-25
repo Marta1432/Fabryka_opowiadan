@@ -73,9 +73,9 @@ def _ensure_cost_state():
         "cost_usd": 0.0,
         "cost_pln": 0.0,
         # ceny domyślne (USD)
-        "price_input_per_1k": 0.5,   # PRZYKŁAD – ustawisz w sidebarze
-        "price_output_per_1k": 1.5,  # PRZYKŁAD – ustawisz w sidebarze
-        "price_image_usd": 0.08,     # PRZYKŁAD – ustawisz w sidebarze
+        "price_input_per_1k": 0.005,   # PRZYKŁAD – ustawisz w sidebarze
+        "price_output_per_1k": 0.015,  # PRZYKŁAD – ustawisz w sidebarze
+        "price_image_usd": 0.04,     # PRZYKŁAD – ustawisz w sidebarze
         "usd_to_pln_rate": 4.00      # kurs ustawisz w sidebarze
     }.items():
         st.session_state.setdefault(k, v)
