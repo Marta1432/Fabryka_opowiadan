@@ -64,6 +64,41 @@ def init_session_state():
 # Inicjalizacja po starcie aplikacji
 init_session_state()
 
+# --- Rozliczanie tokenów i kosztów ---
+def _ensure_cost_state():
+    for k, v in {
+        "cost_prompt_tokens": 0,
+        "cost_completion_tokens": 0,
+        "cost_images_count": 0,
+        "cost_usd": 0.0,
+        "cost_pln": 0.0,
+        # ceny domyślne (USD)
+        "price_input_per_1k": 0.5,   # PRZYKŁAD – ustawisz w sidebarze
+        "price_output_per_1k": 1.5,  # PRZYKŁAD – ustawisz w sidebarze
+        "price_image_usd": 0.08,     # PRZYKŁAD – ustawisz w sidebarze
+        "usd_to_pln_rate": 4.00      # kurs ustawisz w sidebarze
+    }.items():
+        st.session_state.setdefault(k, v)
+
+def _add_chat_cost(usage):
+    """usage: response.usage z ChatCompletion."""
+    if not usage:
+        return
+    in_t = usage.get("prompt_tokens", 0)
+    out_t = usage.get("completion_tokens", 0)
+    st.session_state.cost_prompt_tokens += in_t
+    st.session_state.cost_completion_tokens += out_t
+    usd = (in_t/1000.0)*st.session_state.price_input_per_1k + (out_t/1000.0)*st.session_state.price_output_per_1k
+    st.session_state.cost_usd += usd
+    st.session_state.cost_pln = st.session_state.cost_usd * st.session_state.usd_to_pln_rate
+
+def _add_image_cost(n=1):
+    st.session_state.cost_images_count += n
+    st.session_state.cost_usd += n * st.session_state.price_image_usd
+    st.session_state.cost_pln = st.session_state.cost_usd * st.session_state.usd_to_pln_rate
+
+_ensure_cost_state()
+
 # --- Funkcje pomocnicze ---
 
 def get_preferences_prompt():
@@ -165,7 +200,6 @@ def create_pdf(story_text, images_data=None):
     pdf.drawCentredString(width / 2, y, "✨ Opowiadanie stworzone przez Fabrykę Opowiadań AI ✨")
     y -= 30
     pdf.setFont("LiberationSerif", 14)
-    pdf.drawCentredString(width / 2, y, "Autor: Bajkowa Mama & AI")
     y -= 20
 
     pdf.setLineWidth(0.5)
@@ -200,8 +234,10 @@ def create_pdf(story_text, images_data=None):
 
         # --- Tytuł rozdziału ---
         if line.lower().startswith("rozdział"):
+        # oczyść markdown/cudzysłowy:
+            clean_title = re.sub(r'[*"_`#]+', '', line).strip()
             pdf.setFont("LiberationSerif-Bold", 16)
-            pdf.drawString(margin, y, line)
+            pdf.drawString(margin, y, clean_title)
             y -= 18
             pdf.setLineWidth(0.3)
             pdf.line(margin, y, margin + 180, y)
@@ -308,6 +344,10 @@ def handle_image_generation(scenes):
                 n=1,
                 size="1024x1024"
             )
+            # 💰 Zapisz koszt ilustracji (DALL·E)
+            _add_image_cost(1)
+            st.info(f"🖼️ Dodano koszt 1 ilustracji. Łącznie: {st.session_state.cost_pln:.2f} zł")
+
 
             image_url = response["data"][0]["url"]
 
@@ -542,6 +582,13 @@ if submitted_settings:
             st.session_state.plan = response.choices[0].message["content"]
             st.session_state.step = "plan"
             st.success("Plan opowiadania gotowy!")
+
+            # 💰 Zapisz koszty tokenów (plan)
+            if hasattr(response, "usage"):
+                _add_chat_cost(response.usage)
+                used = response.usage.get("total_tokens", 0)
+                st.info(f"💰 Użyto {used} tokenów (łącznie: {st.session_state.cost_pln:.2f} zł)")
+   
         
         except Exception as e:
             st.error(f"❌ Wystąpił błąd podczas generowania planu: {e}")
@@ -607,9 +654,11 @@ if st.session_state.step == "plan" and st.session_state.plan:
                         
             # Wyświetlenie obrazka
             with col2:
-                if idx in st.session_state.scene_images:
+
+                key = str(idx)
+                if key in st.session_state.scene_images:
                     st.image(
-                        st.session_state.scene_images[idx],
+                        st.session_state.scene_images[key],
                         caption=f"Ilustracja {idx} – {st.session_state.style}",
                         use_column_width="auto"
                     )
@@ -687,6 +736,12 @@ if st.session_state.step == "writing":
                 )
                 st.session_state.story = response.choices[0].message["content"]
                 st.success("Opowiadanie gotowe!")
+                    # 💰 Zapisz koszty tokenów (pełna historia)
+                if hasattr(response, "usage"):
+                    _add_chat_cost(response.usage)
+                    used = response.usage.get("total_tokens", 0)
+                    st.info(f"💰 Użyto {used} tokenów (łącznie: {st.session_state.cost_pln:.2f} zł)")
+
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Błąd podczas pisania historii. Spróbuj ponownie. Błąd: {e}")
@@ -726,6 +781,11 @@ if st.session_state.step == "final":
     st.markdown("---")
     
     st.subheader("Pobieranie pliku PDF")
+
+        # 💰 Podsumowanie kosztów całej sesji
+    if "cost_pln" in st.session_state:
+        st.info(f"💰 Łączny koszt generowania: {st.session_state.cost_pln:.2f} zł")
+
     
     if st.session_state.story:
         
